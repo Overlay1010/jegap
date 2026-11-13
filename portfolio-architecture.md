@@ -10,7 +10,8 @@
 >
 > **서비스 구조 (2026-10-07 확정):** 모노레포 · Python 통일. **Django**(회원·사용자 기능·운영 Admin) + **FastAPI**(분석·추론 / AI) + **Celery**(알림) + **Prefect**(데이터 파이프라인).
 > 폴더 골격·Compose·서비스별 CI·LLMOps 분리는 [SKN34-4th-1Team](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN34-4th-1Team)을 참고하고,
-> Spring · RabbitMQ · Elasticsearch · 초기 Kubernetes는 쓰지 않는다. (3장)
+> Spring · RabbitMQ · Elasticsearch는 쓰지 않는다. (3장)
+> **V4 변경 (2026-11-13, Phase 4-4):** 포트폴리오 데모를 **VM 1대 + k3s**(Helm · Argo CD)로 배포하고, 파이프라인은 Prefect 대신 **K8s CronJob**, LLM 추적은 Langfuse Cloud. 1차는 로그인 없이 분석 + 호가 판정 + AI 상담, Django · Celery는 2차.
 
 ---
 
@@ -984,6 +985,24 @@ LLM은 군집·회귀·분류 결과를 **도구(Tool)로 호출해 받은 값�
 - 리포트 생성·비교 설명: 중급 이상 모델 (예: Claude Sonnet급)
 - 검색 조건 파싱·분류성 작업: 경량 모델 (예: Claude Haiku급)
 - 동일 단지·월 리포트는 캐시해 호출 비용을 최소화한다.
+- **sLLM(직접 학습 · 서빙하는 작은 모델)은 지금 만들지 않는다** (2026-11-12). LLM의 일은 도구 숫자를 근거로 설명하는 것이라 근거 지키기 · 투자 권유 거절 · 한국어 품질에서 대형 API 모델이 유리하고,
+  파인튜닝할 상담 기록이 아직 없으며, 정책은 자주 바뀌어 학습보다 RAG가 맞고, GPU 서빙 운영 비용이 MVP 트래픽에 비해 크다.
+  다시 검토할 조건: API 비용 > GPU 서버 비용 (캐시 후), 민감 정보를 외부로 보낼 수 없는 요구, 대량 · 저지연 좁은 작업(조건 파싱), 포트폴리오용 실험.
+  교체는 아래 평가 세트에서 API 모델보다 나을 때만 한다 (ML 모델 교체와 같은 원칙).
+
+## LLMOps (V4)
+
+ML 쪽 운영(매달 재학습 · 품질 게이트 · MAPE 모니터링, 13장)과 같은 원칙으로 LLM 쪽도 **바꾸기 전에 측정하고, 나빠지면 배포하지 않는다.**
+
+| 영역 | 할 일 |
+|---|---|
+| 프롬프트 · 모델 버전 | 프롬프트를 코드처럼 파일로 버전 관리, 응답 로그에 프롬프트 · 모델 버전 기록. LLM 제공자는 ai-service 안 한 곳(어댑터)에서만 호출해 교체 가능하게 |
+| 평가 게이트 (CI) | 프롬프트 · 모델 · RAG 설정을 바꾸면 평가 세트 자동 실행 → 숫자 정확도 · 출처 정확도 · Guardrail 위반률이 기준보다 나빠지면 배포 차단 |
+| RAG 품질 | 정책 문서 버전(재색인 이력) 관리, 검색 정답 세트로 recall@k 측정, 문서 갱신 후 재평가 |
+| 추적 · 비용 | Langfuse로 요청별 토큰 · 지연 · 도구 호출 · 실패 기록, 일 · 월 비용 한도와 알림, 캐시 적중률, 사용자별 호출 제한 |
+| 피드백 루프 | 답변 좋아요/싫어요 · 오류 신고 → Admin에서 검토 → 평가 세트에 추가 |
+| 장애 대응 | LLM API 실패 · 지연 시 ML 결과 카드(적정가 · 범위 · 등급 · 근거 거래)만 보여주고 설명은 생략 — 핵심 숫자는 LLM 없이도 동작 |
+| 개인정보 | 외부 API로 보내는 입력에서 개인 식별 정보 제거, 대화 로그 보관 기간 · 삭제 정책 (18장 개인정보처리방침과 연결) |
 
 ## 포트폴리오 포인트
 
@@ -1278,12 +1297,40 @@ V2에서 발견한 원본 데이터 문제를 파이프라인 검사로 자동�
 - 지키는 원칙은 V2와 같다: 시점 규칙, 중개거래 평가, Test로 고르지 않음, 결과를 본 뒤 기준을 바꾸지 않음, 민간 매물 크롤링 금지
 - 서비스가 있어야 하는 일(사용자 입력 호가, 실제 사용 기록 검증)은 V4로 둔다
 
+## Phase 4-4 — V4 설계 결정 (2026-11-13)
+
+> 이 절이 3장 · 13장 · Phase 5~8의 인프라 초안보다 우선한다. 바뀐 것: Kubernetes 사용(포트폴리오 데모), Prefect 대신 K8s CronJob, 1차는 로그인 없이 AI 상담까지.
+
+**1차 공개 범위:** 단지 검색 → 통합 분석 페이지(적정가 · 80% 범위 · 등급 · 근거 거래 · 지역 흐름) + **호가 입력 판정** + **AI 리포트 · 상담**(도구 숫자만 근거, 12장).
+로그인 · 관심단지 · 알림 · 운영 Admin(Django · Celery)은 2차. 1차 AI 호출은 세션 · IP 단위 한도로 비용을 제한한다.
+
+| 결정 | 선택 | 근거 |
+|---|---|---|
+| 공개 형태 | 포트폴리오 데모 (소수 사용자) | 사용자 결정 |
+| K8s 환경 | **VM 1대 + k3s** (단일 노드, 고가용성 아님) | EKS는 컨트롤 플레인만 클러스터당 $0.10/시간(월 약 $73) + 노드 별도 ([EKS 가격](https://aws.amazon.com/eks/pricing/)). k3s 서버 최소 2코어 · 2GB, 권장 4GB~ ([k3s 요구사항](https://docs.k3s.io/installation/requirements)) |
+| VM | **1순위 Oracle Always Free A1 (ARM 2 OCPU · 12GB, ₩0)**, 생성 실패 · 회수 시 **AWS Lightsail 서울 16GB(4 vCPU, $84/월)** 또는 8GB(2 vCPU, $44/월) | A1 무료 한도 2 OCPU · 12GB, 홈 리전에서만 생성 · 용량 부족 오류 가능 · 메모리 20% 미만 유휴 시 회수 가능, 춘천 AD 제외 ([OCI Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)). Lightsail 번들 ([가격](https://aws.amazon.com/lightsail/pricing/)) |
+| 메모리 예산 | 상시 약 5GiB(추정) + 매달 재학습 최대 **2.4GiB(측정)** → 12GB 여유, 8GB 빠듯 | 재학습 측정(2026-11-13, 로컬 8코어): 데이터 적재 1.6GiB, LightGBM 트리 2,080개 최대 2.4GiB, 2스레드 109초 · 4스레드 102초. 상시 추정: k3s ~1 · Argo CD ~0.7 · Postgres ~1 · analysis ~0.7 · ai ~0.4 · Qdrant ~0.5 · Redis · Traefik · 기타 ~0.7GiB → 로컬 k3d에서 실측 후 확정 |
+| 스케줄러 | **K8s CronJob** (Prefect 안 씀) | 작업이 일직선 흐름 몇 개(매일 수집 → 계산 → 추론, 매주 지수, 매달 재학습 → 비교 → 승격)뿐. CronJob `timeZone`은 v1.27부터 안정, `concurrencyPolicy: Forbid`로 겹침 방지. 공식 문서상 "두 번 실행되거나 실행되지 않을 수 있어 작업은 idempotent해야 함" → 모든 작업을 거래 ID · 월 단위 덮어쓰기로 설계, 실행 결과는 품질 게이트 테이블에 기록 ([CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/)). Prefect self-host는 서버 + worker + 운영 시 PostgreSQL 14.9+(확장 시 Redis) 필요 ([Prefect self-host](https://docs.prefect.io/v3/advanced/self-hosted)) |
+| LLM 추적 | **Langfuse Cloud Hobby (무료)** | 월 5만 단위 · 30일 보관 ([가격](https://langfuse.com/pricing)). self-host 공식 최소 사양은 Web 4GiB · Worker 4GiB · Postgres 4GiB · Redis 1.5GiB · ClickHouse 8GiB ([Scaling](https://langfuse.com/self-hosting/configuration/scaling)) → 단일 VM에 불가 |
+| 배포 | Helm 차트 + **Argo CD(GitOps)**, GitHub Actions → GHCR 이미지(**amd64 · arm64 멀티 아키텍처**, A1이 ARM), Traefik Ingress(k3s 기본) + cert-manager TLS | 로컬은 같은 차트로 k3d. 비밀값(API 키)은 Git에 넣지 않고 Sealed Secrets로 |
+| DB | 1차는 **PostgreSQL**(공식 이미지), PostGIS는 지도 기능(2차) 때 | 거리 Feature는 파이프라인에서 미리 계산해 서빙 테이블에 저장 |
+
+**1차 구성:** `frontend`(React) · `analysis-service`(FastAPI: 검색 · 분석 · 호가 판정) · `ai-service`(FastAPI: 리포트 · 상담 · 정책 RAG) · PostgreSQL · Redis(캐시 · 호출 한도) · Qdrant(정책 문서) ·
+CronJob(`collect-daily` · `index-weekly` · `retrain-monthly`) · Langfuse Cloud.
+
+**서빙 규칙 변경 (V2 산출물은 기록으로 두고 `apt-core`에서 구현 · 일치 테스트):**
+- 80% 범위 구간에 **단지 최근 흐름(단지_최근잔차 ±3%) 추가** (`r11_interval5`, 결과 전 기준): Valid 80.5%, Test 81.3% · 100세대 미만 67.2 → 75.7% · 흐름 −3% 미만 72.5 → 81.6%. 매달 OOF 예측 저장이 파이프라인에 필요(단지 최근 잔차 계산용)
+- (제안 · 확정 전) 직전 같은 면적 거래 1년 넘음 · 없음(중개 약 7%)은 범위를 고쳐도 Test 포함률 67% → 신규 단지처럼 **등급 없이 참고용 범위**
+
+**V4 순서:** ① `apt-core` 모듈화 + 노트북 결과 일치 테스트 → ② CronJob 파이프라인(수집 · 추론 · 재학습 · 품질 게이트) → ③ analysis API + frontend →
+④ **LLM 평가 세트 먼저** → ai-service(리포트 · 상담 · RAG) + LLMOps(12장) → ⑤ k3d에서 전체 실측 → Helm · Argo CD로 VM 배포 → 1차 공개.
+
 ## Phase 5 — 코드 모듈화 + 데이터 갱신 파이프라인 (V4, V3 모델 재설계 후, 13장)
 
 **5-0. 저장소 골격** — 3장 구조로 폴더 생성 (`notebook/` · `data/` · `models/`는 이동하지 않음)
 
 - [ ] `packages/apt-core/` 패키지 설정 (`pyproject.toml`, `pip install -e`)
-- [ ] `infrastructure/compose.yaml` (우선 postgres(PostGIS) + pipeline)
+- [ ] `infrastructure/helm/` 차트 골격 + 로컬 k3d 클러스터 (우선 postgres + pipeline CronJob) — Phase 4-4
 - [ ] `.env.example` · `.gitignore` 정리
 
 **5-1. 모듈화** — 노트북 로직을 그대로 옮기고 결과 일치를 테스트로 확인
@@ -1338,7 +1385,7 @@ V2에서 발견한 원본 데이터 문제를 파이프라인 검사로 자동�
 - [ ] `frontend/web` (React + Vite + Tailwind, OpenAPI 생성 타입)
 - [ ] `infrastructure/nginx` 경로 라우팅 + compose 전체 서비스 구동
 - [ ] 서비스별 CI (core · analysis · web) + GHCR 이미지 빌드
-- [ ] Compose 그대로 단일 서버(EC2/Lightsail) 배포 → 실제 B2C 접속 가능 상태
+- [ ] k3s 단일 VM(Oracle A1 무료 → 안 되면 Lightsail) + Helm · Argo CD · Traefik · cert-manager 배포 → 실제 접속 가능 상태 (Phase 4-4)
 
 ## Phase 7 — AI 엔지니어링 (ai-service, 12장)
 
@@ -1350,6 +1397,7 @@ V2에서 발견한 원본 데이터 문제를 파이프라인 검사로 자동�
   - 문서 소스: 법령 원문(주택법 · 지방세법 · 은행업감독규정 등, 국가법령정보 API) + 국토부 보도자료(HWP → 텍스트 변환)
 - [ ] AI 상담 이력 저장 (core-service) · 리포트 공유 링크
 - [ ] `infrastructure/llmops/`: Langfuse(토큰·응답시간·도구 호출) · Evidently(드리프트·MAPE) · Redis 리포트 캐시
+- [ ] LLMOps 운영 흐름 (12장): 프롬프트 · 모델 버전 관리, CI 평가 게이트, RAG recall@k, 비용 한도 · 알림, 피드백 → 평가 세트, LLM 장애 시 ML 카드만 표시, 외부 전송 전 개인정보 제거
 
 ## Phase 8 — 확장
 
@@ -1359,7 +1407,7 @@ V2에서 발견한 원본 데이터 문제를 파이프라인 검사로 자동�
 - [ ] 경매 물건 적정가 비교 · 청약 공고 알림 · 보유세 계산 (18장)
 - [ ] 분석 도구를 MCP 서버 / Agent Skill로 공개 (18장)
 - [ ] 임장 노트 · 비교 바구니 · 카카오 알림톡
-- [ ] `infrastructure/gitops/`: Helm + kind 배포 검증
+- [x] ~~`infrastructure/gitops/`: Helm + kind 배포 검증~~ → V4 1차로 앞당김 (Phase 4-4: Helm · Argo CD · k3d/k3s)
 
 ## Phase 9 — 주택 유형 확장 (V5, 아파트 서비스 완성 후)
 

@@ -33,6 +33,7 @@
 | 25 | `r11_method_test.py` | `r11_method_test.csv`, `r11_method_test_output.txt` (첫 실행 `_run1`: 기준 11회 뒤 요약 출력 오류로 중단, 결과는 CSV에 이어 씀) | 보완 5: 학습 방법 비교(잔차 학습 · L1 손실 · 최근 거래 가중), 판정 보강(시간 fold 4개 × 시드 3개, 결과 전에 고정) → 모두 **불채택**. 잔차 학습은 평균 +0.117%p지만 f0a가 시드 3개 모두 악화. 기준 모델 f1 시드 간 차이가 0.27%p로 드러남 |
 
 | 26 | `r11_resid_build.py`, `r11_resid_test.py` | `resid_feat.parquet` (커밋 안 함), `r11_resid_test.csv`, `r11_resid_test_output.txt` | **V3 추가 시험** (V3 EDA 3에서 "적정가보다 비싸게 거래되던 단지가 계속 더 오름" 관찰 → 1회): 단지 최근 OOF 잔차 평균 · 건수 (계약일 [d−395, d−30]), 보완 5 규칙 → 시간 fold 평균 +0.084%p, f0a −0.007 · f2 +0.020으로 **불채택** |
+| 27 | `r11_interval5.py` | `r11_interval5.csv`, `r11_interval5_candidates.csv`, `r11_interval5_output.txt` | **V4 전 점검 · 구간별 80% 범위** (기준 결과 전 고정): 현재 규칙은 Valid 전체 80.8%지만 직전 같은 면적 거래 1년 넘음 · 없음 57.3%, 100세대 미만 62.5%, 단지 흐름 −3% 미만 66.6% → 보완 조건 해당. 후보(+세대수 · +직전 경과 · +단지 최근 흐름) 중 규칙대로 **+단지 최근 흐름(±3%) 채택** (Valid 80.5%, 최저 67.7%) → Test 81.3%, 100세대 미만 67.2 → 75.7%, 직전 1년 넘음 · 없음 57.6 → 67.4%(여전히 낮음 → 등급 없이 참고용 제안). V2 산출물은 그대로 두고 V4 `apt-core`에서 구현 |
 
 보완 후 `r11_interval4.py`가 만든 `r11_oof2.parquet`(매달 재학습 OOF 예측)를 `models/regression/v2/oof_predictions.parquet`로 복사해 커밋했고 (보완 전 OOF는 커밋하지 않음), 노트북은 그 파일을 읽는다.
 보완 2부터는 `r11_rolling3.py`가 만든 `r11_oof3.parquet`를 같은 위치로 복사했다.
