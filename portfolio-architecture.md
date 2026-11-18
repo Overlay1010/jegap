@@ -1327,7 +1327,7 @@ CronJob(`collect-daily` · `index-weekly` · `retrain-monthly`) · Langfuse Clou
 대신 `apt-core` 설정 · 수집 · 공통 Feature는 처음부터 **주택 유형과 지역**을 인자로 받게 만들어 V5 · V6에서 데이터와 모델만 추가한다.
 
 **서비스 기획:** 사용자 관점 기획서는 [docs/service-plan.md](docs/service-plan.md) (대상 · 흐름 · 화면 · 판정 표현 · 법적 위험 · 지표).
-**V4 상세 설계:** [docs/v4-design.md](docs/v4-design.md) — 설계값마다 근거(공식 문서 · 실측 · 계산). AI 예산 월 1만 원 → Sonnet 5.5는 하루 약 8회뿐이라, 평가 세트로 Haiku 5.5와 비교해 기준을 통과한 싼 모델을 쓴다 (4장). `apt-core`는 순수 함수 · 레지스트리 계약 · 질의 경로 = 거래 경로, 일치 테스트 T1~T9를 x64 · arm64 CI에서 실행 (1장, 재학습 재현 실측: 같은 설정이면 트리 완전 일치).
+**V4 상세 설계:** [docs/v4-design.md](docs/v4-design.md) — 설계값마다 근거(공식 문서 · 실측 · 계산). AI 예산 월 1만 원 → Sonnet 5.5는 하루 약 8회뿐이라, 평가 세트로 Haiku 5.5와 비교해 기준을 통과한 싼 모델을 쓴다 (4장). `apt-core`는 순수 함수 · 레지스트리 계약 · 질의 경로 = 거래 경로, 일치 테스트 T1~T9를 x64 · arm64 CI에서 실행 (1장, 재학습 재현 실측: 같은 설정이면 트리 완전 일치). 파이프라인: 적정가는 매달 1일 한 번 계산, 실거래는 매일 최근 13개월 재수집(해제 99.3%가 1년 안), 거래 고유 ID가 없어 구 × 계약월 묶음 교체 + 처음 본 날짜 기록 (2장). 서빙: (단지 × 면적 × 층) 36만 행을 매달 미리 계산(일괄 예측 약 1분 실측) → analysis-service는 모델 없이 DB만 읽고, AI 도구도 같은 API를 호출 (3장).
 
 **V4 순서:** ① `apt-core` 모듈화 + 노트북 결과 일치 테스트 → ② CronJob 파이프라인(수집 · 추론 · 재학습 · 품질 게이트) → ③ analysis API + frontend →
 ④ **LLM 평가 세트 먼저** → ai-service(리포트 · 상담 · RAG) + LLMOps(12장) → ⑤ k3d에서 전체 실측 → Helm · Argo CD로 VM 배포 → 1차 공개.
