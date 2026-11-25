@@ -28,8 +28,10 @@
 | 근거 거래 5건 | 같은 단지 · 면적 최근 중개거래 | 06 `06_last_trade` | `features/last_trade.py` |
 | 구 4주 흐름 순위 · 권역 수급 · 정책 타임라인 | 부동산원 주간 지수 4주 흐름, 공급 · 정책 표 | 31 `models/classification/v2/gu_trend_weekly.parquet` · `display_config.json` | `models/region_flow.py` |
 | 단지 태그 | 규칙 태그 | 21 `models/clustering/v2/tag_rules.json` → `complex_tags.parquet` | `tags.py` |
+| 비교해 볼 만한 단지 (2026-11-25 추가) | KNN 5개 (입지 · 주택 · 교육 Feature, 가격 미사용, 기본 같은 구 · 대안 서울 전체) | 21 `similar_complexes.parquet` · `cluster_config.json` `knn`, 평가 `knn_evaluation.csv` | `similar.py` |
 
-- 1차 제외: 21 KMeans 군집 · KNN 유사 단지(스크리너 · 비교 · 지도와 함께 2차), 31 확률 모델(4주 추세 기준선보다 나은 모델이 없어 쓰지 않음)
+- 1차 제외: 21 KMeans 군집(분석용 · 주요 단지 Silhouette 0.09, 스크리너 · 비교 · 지도와 함께 2차), 31 확률 모델(4주 추세 기준선보다 나은 모델이 없어 쓰지 않음)
+- **KNN 유사 단지는 1차에 넣는다 (사용자 결정 2026-11-25):** 처음에는 2차 기능에 딸린 것으로 제외했지만(11-18, 따로 묻지 않고 넣은 분류), 평가가 이미 있고 비용이 작다 — 주요 단지 기준 이웃과의 평당가 차이 중앙 18.1%(같은 구 무작위 45.9%, 좌표 최근접 26.7%), 규칙 태그 일치율 0.76. 차이가 18%라 **적정가 근거로 쓰지 않고 "비교해 볼 만한 단지" 목록으로만** 보여 준다. 같은 구 안 좌표 최근접과의 비교는 아직 안 했고(① `similar.py` 때 추가), 사용자에게 도움이 되는지는 6-9 사용성 테스트에서 본다
 
 ### 1-2. Feature 201개의 출처 (레지스트리 `v2_feature_registry.csv` 집계, 2026-11-18)
 
@@ -73,7 +75,7 @@
 | T6 | 범위 · 등급 | `interval.py`의 2026-08 범위표 ↔ `interval_table.csv`, 흐름 구간 추가 규칙 ↔ `r11_interval5.csv` (Valid 80.5% · Test 81.3%) | 분위수 완전 일치, 포함률 소수 둘째 자리까지 같음 |
 | T7 | 시점 누출 (06 검사 이식) | 기준일 이후 자료를 지우고 다시 계산해도 같은 값, 시차를 1개월 줄이면 실패해야 함(시험의 시험) | 06과 같음 |
 | T8 | 레지스트리 계약 | 출력 열 = 레지스트리 `role == model` 201개, 금지 열(정답 · 거래 이후 정보) 없음 | 완전 일치 |
-| T9 | 지역 흐름 · 태그 | `region_flow.py` ↔ `gu_trend_weekly.parquet`, `tags.py` ↔ `complex_tags.parquet` | 완전 일치 |
+| T9 | 지역 흐름 · 태그 | `region_flow.py` ↔ `gu_trend_weekly.parquet`, `tags.py` ↔ `complex_tags.parquet`, `similar.py` ↔ `similar_complexes.parquet` | 완전 일치 |
 
 **CI 실행 환경:** 저장소가 공개라 GitHub 호스트 러너가 Linux x64 · **arm64 모두 4 CPU · 16GB RAM · 14GB SSD** ([GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), 2026-11-18 조회). 로컬 재학습 최대 2.4GiB(Phase 4-4 측정)라 전체 데이터로 T1~T9를 CI에서 돌릴 수 있다 → **x64 · arm64 두 러너에서 실행**(배포 VM이 ARM).
 
@@ -285,7 +287,7 @@ m월 1일 실행 (예: 2026-12-01 → 확정월 2026-10):
 | 메서드 · 경로 | 용도 | 화면 |
 |---|---|---|
 | `GET /api/complexes?q=` | 단지명 · 주소 자동완성 (최대 10건) | S1 |
-| `GET /api/complexes/{id}` | 단지 프로필 · 태그 · 거래된 전용면적 목록 | S2 |
+| `GET /api/complexes/{id}` | 단지 프로필 · 태그 · 거래된 전용면적 목록 · 비교해 볼 만한 단지 5개 | S2 |
 | `GET /api/complexes/{id}/fair-price?area=` | 그 면적의 층별 적정가 · 범위 (전 층 한 번에) | S2 |
 | `GET /api/complexes/{id}/trades?area=&limit=5` | 같은 단지 · 면적 최근 거래 (해제 제외, 해제 건수는 따로) | S2 · S3 |
 | `POST /api/judgments` | 호가 판정: `{complex_id, area, floor, asking_price}` → 판정 · 범위 막대 위치 · **설명 단계(6-3)** · 근거 거래 | S3 |
@@ -630,7 +632,7 @@ k3d 대신 같은 내용물인 `rancher/k3s` 컨테이너를 띄우고, 1차에 
 | 화면 | 보여 줄 것 | API (3-3) |
 |---|---|---|
 | **S1 검색** | 단지명 · 주소 자동완성(최대 10건, 구 · 세대수 · 준공연도 함께), 많이 본 단지 | `GET /api/complexes?q=` · 많이 본 단지는 6-7 이벤트 집계 |
-| **S2 단지 분석** | ① 단지 프로필 · 태그 · 배정 초등학교 · 중학교 학구(학구도 표시값, 5-10) ② 전용면적 선택(5년간 거래된 면적만, 3-1) ③ 그 면적의 **층 묶음별 적정가 범위**(6-5) ④ 같은 단지 · 면적 최근 거래 5건(해제 건수는 따로) ⑤ 구 4주 흐름 · 순위 · 권역 수급 · 정책 타임라인 ⑥ "호가 판정하기" 버튼 | `/complexes/{id}` · `/fair-price?area=` · `/trades` · `/regions/{gu}/flow` |
+| **S2 단지 분석** | ① 단지 프로필 · 태그 · 배정 초등학교 · 중학교 학구(학구도 표시값, 5-10) · 비교해 볼 만한 단지 5개(1-1, 적정가 근거 아님을 밝힘) ② 전용면적 선택(5년간 거래된 면적만, 3-1) ③ 그 면적의 **층 묶음별 적정가 범위**(6-5) ④ 같은 단지 · 면적 최근 거래 5건(해제 건수는 따로) ⑤ 구 4주 흐름 · 순위 · 권역 수급 · 정책 타임라인 ⑥ "호가 판정하기" 버튼 | `/complexes/{id}` · `/fair-price?area=` · `/trades` · `/regions/{gu}/flow` |
 | **S3 호가 판정** | 입력(면적 · 층 · 호가) → **판정 카드**: 판정 문구(6-3) · 범위 막대 위 호가 위치 · 적정가와의 차이(%) · **설명 단계(6-3)** · 근거 거래 · 안내 문구(6-4) · "왜 이렇게 나왔어?" 버튼 | `POST /api/judgments` |
 | **S4 AI 상담** | 리포트(요약 · 가격 요인 · 확인할 점), 대화, 정책 답변의 출처 링크. 답변은 끝까지 받아 검사한 뒤 표시(7-5) | `ai-service` (도구 = 3-3 API) |
 
