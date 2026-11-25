@@ -113,3 +113,94 @@ def compute(query: pd.DataFrame, schools: pd.DataFrame, date_col: str = "계약�
     out = q.merge(feats, on=["위도", "경도", "학교기준연도"], how="left", validate="many_to_one")
     out.index = query.index
     return out[COLUMNS + ["학교기준연도"] + DISPLAY]
+
+
+# ---------------- EDSS 원본 → 학교 × 기준연도 표 (02_school_environment 셀 33 ~ 35 · 38 ~ 42 · 55 · 59 ~ 62 이식, 설계 1-4b R9) ----------------
+# 관리하는 표 (학교알리미 API로 만든 것, 새 학교가 생기면 사람이 추가):
+#   학교코드 대응표 school_crosswalk_2021_2025 (개방ID → SCHUL_CODE · 학교명, 수동 보정 포함)
+#   학교 좌표 = 학교 코드맵 school_code_map_v2 + 보충표 data/external/school_location_patch.csv (코드맵에 없는 9곳)
+#   학교알리미 학생수 school_environment_2024_2026 (방송통신 부설학교 학생수 보정용)
+EDSS_FILE_GROUPS = {"학교속성": "0001. 공통_학교속성", "학교개황": "0002. 유초중등학교개황", "학급현황": "0003. 유초중등학급현황",
+                    "교원현황": "0007. 유초중등교원현황", "도서관운영현황": "0008. 도서관운영현황", "건물현황": "0105. 건물현황",
+                    "학생변동현황": "0210. 학생변동현황"}
+HIGH_SCHOOL_TYPES = {"일반고등학교", "특성화고등학교", "특수목적고등학교", "자율고등학교"}
+BROADCAST_GAP = 50  # EDSS 학생수가 학교알리미보다 50명 넘게 많으면 부설 방송통신중 · 고 학생이 합산된 학교
+SCHOOL_LOCATION_OVERRIDES = [  # 덕수고: 2024년 위례 이전 때 개방ID가 캠퍼스 간 바뀜 → 2021 ~ 2023 행은 성동 옛 캠퍼스 좌표
+    {"개방ID": 9478733062, "시작연도": 2021, "종료연도": 2023, "위도": 37.5552642216916, "경도": 127.041141809583}]
+TABLE_COLUMNS = ["기준연도", "개방ID", "SCHUL_CODE", "학교명", "자치구", "학교급구분", "설립형태", "학생수", "학생수_원본", "학생수_보정여부",
+                 "학급수", "교원수", "학급당학생수", "교원1인당학생수", "위도", "경도", "위치보정여부"]
+
+
+def _read_edss_csv(path):
+    for enc in ["cp949", "utf-8-sig", "utf-8"]:
+        try:
+            return pd.read_csv(path, encoding=enc, low_memory=False)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError(f"인코딩 확인 필요: {path}")
+
+
+def merge_edss(paths) -> dict[str, pd.DataFrame]:
+    """EDSS 연도별 CSV('0001. 공통_학교속성(21).csv' 등) → 종류별 통합 표 7개. 종류마다 2021 ~ 2025 다섯 해가 있어야 한다."""
+    import re
+    from pathlib import Path
+    out = {}
+    for group, prefix in EDSS_FILE_GROUPS.items():
+        pattern = re.compile(rf"{re.escape(prefix)}\((\d{{2}})\)\.csv$")
+        files = sorted(p for p in map(Path, paths) if pattern.fullmatch(p.name))
+        if len(files) != 5:
+            raise ValueError(f"{prefix}: 파일 {len(files)}개 (5개 필요)")
+        d = pd.concat([_read_edss_csv(p) for p in files], ignore_index=True, sort=False)
+        keys = [c for c in ["조사년도", "개방ID"] if c in d.columns]
+        out[group] = d.sort_values(keys).reset_index(drop=True) if keys else d
+    return out
+
+
+def _level(t):
+    return "초등학교" if t == "초등학교" else "중학교" if t == "중학교" else "고등학교" if t in HIGH_SCHOOL_TYPES else pd.NA
+
+
+def edss_school_table(attribute, overview, class_status, crosswalk, schoolinfo, code_map, location_patch) -> pd.DataFrame:
+    base = attribute[attribute["시도명"] == "서울"].copy()
+    base["학교급구분"] = base["학제유형명"].apply(_level)
+    base = (base[base["학교급구분"].notna()][["조사년도", "개방ID", "시군명", "학교급구분", "설립구분명"]]
+            .rename(columns={"조사년도": "기준연도", "시군명": "자치구", "설립구분명": "설립형태"}).reset_index(drop=True))
+    ov = overview[["조사년도", "개방ID", "유초중등학교개황_학생수", "유초중등학교개황_교원수"]].rename(
+        columns={"조사년도": "기준연도", "유초중등학교개황_학생수": "학생수", "유초중등학교개황_교원수": "교원수"})
+    cl = class_status[["조사년도", "개방ID", "유초중등학급_학급수"]].rename(columns={"조사년도": "기준연도", "유초중등학급_학급수": "학급수"})
+    e = (base.merge(ov, on=["기준연도", "개방ID"], how="left", validate="one_to_one")
+         .merge(cl, on=["기준연도", "개방ID"], how="left", validate="one_to_one"))
+    e[["학생수", "학급수", "교원수"]] = e[["학생수", "학급수", "교원수"]].apply(pd.to_numeric, errors="coerce")
+    e = e[(e["학생수"] > 0) & (e["학급수"] > 0) & (e["교원수"] > 0)].reset_index(drop=True)  # 휴교 등 0인 학교 제외
+    e = e.merge(crosswalk, on="개방ID", how="left", validate="many_to_one")
+    if e["SCHUL_CODE"].isna().any():
+        raise ValueError(f"학교코드 대응표에 없는 EDSS 학교: {sorted(e.loc[e['SCHUL_CODE'].isna(), '개방ID'].unique())[:5]} — 대응표 추가 필요")
+
+    # 방송통신 부설학교: 2024 · 2025는 학교알리미 학생수로, 2021 ~ 2023은 두 해 평균 차이를 빼서 추정
+    si = schoolinfo[schoolinfo["기준연도"].isin([2024, 2025])][["기준연도", "SCHUL_CODE", "학생수", "학급수"]]
+    gap = e[e["기준연도"].isin([2024, 2025])][["기준연도", "개방ID", "SCHUL_CODE", "학생수", "학급수"]].merge(
+        si, on=["기준연도", "SCHUL_CODE"], how="inner", suffixes=("_EDSS", "_SchoolInfo"), validate="one_to_one")
+    gap["학생수차이"] = gap["학생수_EDSS"] - gap["학생수_SchoolInfo"]
+    gap = gap[gap["학생수차이"] > BROADCAST_GAP]
+    offset = gap.groupby("개방ID")["학생수차이"].mean()
+    e["학생수_원본"] = e["학생수"]
+    e["학생수_보정여부"] = e["개방ID"].isin(offset.index)
+    est = e["학생수_원본"] - e["개방ID"].map(offset).fillna(0)
+    si_students = e[["기준연도", "개방ID"]].merge(gap[["기준연도", "개방ID", "학생수_SchoolInfo"]], on=["기준연도", "개방ID"], how="left")["학생수_SchoolInfo"]
+    e["학생수"] = si_students.fillna(pd.Series(est.to_numpy(), index=si_students.index)).round().astype(int).to_numpy()
+    e["학급당학생수"] = e["학생수"] / e["학급수"]
+    e["교원1인당학생수"] = e["학생수"] / e["교원수"]
+
+    loc = pd.concat([code_map[["SCHUL_CODE", "위도", "경도"]], location_patch[["SCHUL_CODE", "위도", "경도"]]], ignore_index=True).drop_duplicates("SCHUL_CODE")
+    e = e.merge(loc, on="SCHUL_CODE", how="left")
+    e["위치보정여부"] = False
+    for o in SCHOOL_LOCATION_OVERRIDES:
+        mask = (e["개방ID"] == o["개방ID"]) & e["기준연도"].between(o["시작연도"], o["종료연도"])
+        e.loc[mask, ["위도", "경도"]] = [o["위도"], o["경도"]]
+        e.loc[mask, "위치보정여부"] = True
+    if e[["위도", "경도"]].isna().any().any():
+        raise ValueError(f"좌표 없는 학교: {sorted(e.loc[e['위도'].isna(), 'SCHUL_CODE'].unique())[:5]} — 학교 좌표 보충표 추가 필요")
+    out = e[TABLE_COLUMNS].sort_values(["기준연도", "개방ID"]).reset_index(drop=True)
+    if out.duplicated(["기준연도", "개방ID"]).any() or out.duplicated(["기준연도", "SCHUL_CODE"]).any():
+        raise ValueError("학교 표 키 중복")
+    return out

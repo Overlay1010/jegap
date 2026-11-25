@@ -86,3 +86,28 @@ def test_stale_inputs_fail(trades, schools, store_edu):
         school.compute(late, schools)
     with pytest.raises(ValueError, match="학원 스냅샷"):
         academy.compute(trades.iloc[[0]].assign(계약일자=pd.Timestamp("2029-01-01")), store_edu, academy.clusters(store_edu))
+
+
+# ---------------- R9: EDSS 원본 → 학교 표 ----------------
+from conftest import EXTERNAL  # noqa: E402
+
+EDSS_RAW = sorted(EXTERNAL.glob("0[0-9][0-9]*. *(2[1-5]).csv"))
+EDSS_NAMES = {"학교속성": "school_attribute", "학교개황": "school_overview", "학급현황": "class_status", "교원현황": "teacher_status",
+              "도서관운영현황": "library_status", "건물현황": "building_status", "학생변동현황": "student_movement"}
+
+
+@pytest.mark.skipif(len(EDSS_RAW) < 35, reason="EDSS 원본 CSV 없음")
+def test_edss_raw_to_school_table():
+    merged = school.merge_edss(EDSS_RAW)
+    for group, name in EDSS_NAMES.items():
+        want = pd.read_parquet(EDSS / f"{name}_2021_2025.parquet")
+        pd.testing.assert_frame_equal(merged[group].reset_index(drop=True), want, check_dtype=False, obj=group)
+    got = school.edss_school_table(
+        merged["학교속성"], merged["학교개황"], merged["학급현황"],
+        pd.read_parquet(PROCESSED / "school" / "school_crosswalk_2021_2025.parquet"),
+        pd.read_parquet(PROCESSED / "school_environment_2024_2026.parquet"),
+        pd.read_parquet(PROCESSED / "school_code_map_v2.parquet"),
+        pd.read_csv(EXTERNAL / "school_location_patch.csv", encoding="utf-8-sig"))
+    want = pd.read_parquet(PROCESSED / "school" / "edss_school_environment_2021_2025.parquet")
+    pd.testing.assert_frame_equal(got, want, check_dtype=False)
+    assert got["학생수_보정여부"].groupby(got["개방ID"]).any().sum() == 6  # 방송통신 부설학교 6곳
