@@ -327,3 +327,103 @@ def trade_features(tr, events, zone_gu, apt_dong, known_ids=None):
     out["토허_근거"] = np.where(gu_wide, "구 전역 아파트", permit["토허_근거"])
     out["토허_근거"] = out["토허_근거"].where(out["토허_단지지정"].eq(1))
     return out
+
+
+# ---------------- 이벤트 ↔ 구간 표 연결 검사 ----------------
+# 지역지정 상태(규제지역 · 토허 0/1)는 이벤트 CSV가 아니라 구간 표가 정한다. 이벤트만 넣고 구간 표를 빠뜨리면
+# 테스트는 통과하고 Feature만 조용히 틀린다 → 이벤트마다 zone_table 열로 처리 방식을 밝히고 아래 검사로 막는다.
+ZONE_TABLE_VALUES = {
+    "반영": "구간 표의 start_event_id · end_event_id로 연결돼 있다",
+    "연장": "재지정. 시행일에 대상 지역의 같은 지정 구간이 열려 있어야 한다 (구간 표는 재지정을 끝나지 않는 구간으로 적음)",
+    "비아파트": "아파트 Feature에 영향 없음 (재개발 후보지 · 모아타운 · 그린벨트 등). 구간 표에 넣으면 target_detail에 비아파트 · 저층주거지 표기",
+    "규칙": "지역 지정이 아니라 거래 · 실거주 · 매수자 규칙 (실거주 유예 · 외국인 토허 · 전매제한). 구간 표 대상 아님",
+    "대체:": "모델 기간 전에 다른 지정으로 대체됨. '대체:P012'처럼 대체한 이벤트를 적는다 (그 이벤트는 '반영'이어야 함)",
+}
+CATEGORY_DESIGNATION = {"조정대상지역": ["조정대상지역"], "투기과열지구": ["투기과열지구"], "투기지역": ["투기지역"],
+                        "분양가상한제": ["분양가상한제", "분양가상한제_일부동"], "토지거래허가구역": ["토허구역_구전역", "토허구역_일부동"]}
+_NON_APT = "비아파트|저층주거지"
+
+
+def _targets(value, all_gu):
+    if pd.isna(value) or value == "":
+        return set()
+    return set(all_gu) if value == "전체" else set(str(value).split(";"))
+
+
+def check_zone_links(events: pd.DataFrame, zone_gu: pd.DataFrame, zone_dong: pd.DataFrame, as_of=None) -> list[str]:
+    """문제 목록을 돌려준다 (비면 통과). as_of를 주면 '만료됐는데 열려 있는 구간'도 찾는다 — 연장 · 해제 반영을 잊으면 그날부터 실패."""
+    problems = []
+    ev = events.set_index("event_id")
+    all_gu = sorted(zone_gu["자치구"].unique())
+    label = ev["zone_table"].fillna("") if "zone_table" in ev else pd.Series("", index=ev.index)
+    linked = set(pd.concat([zone_gu["start_event_id"], zone_gu["end_event_id"], zone_dong["start_event_id"], zone_dong["end_event_id"]]).dropna())
+
+    need = ev["policy_group"].eq("지역지정") & ev["event_role"].isin(["시행", "연장"]) & ev["target_gu"].notna()
+    for eid in ev.index[need & label.eq("")]:
+        problems.append(f"{eid}: zone_table 비어 있음 — {sorted(ZONE_TABLE_VALUES)} 중 하나로 처리 방식을 적어야 함")
+    for eid, v in label[label.ne("")].items():
+        if not (v in ZONE_TABLE_VALUES or v.startswith("대체:")):
+            problems.append(f"{eid}: zone_table 값 '{v}' 모름")
+    for eid in sorted(linked - set(label.index[label.eq("반영")])):
+        problems.append(f"{eid}: 구간 표가 참조하는데 zone_table이 '반영'이 아님")
+
+    def open_at(table, day):
+        return table[(table["start_date"] <= day) & (table["end_date"].isna() | (table["end_date"] >= day))]
+
+    for eid, v in label.items():
+        r = ev.loc[eid]
+        gus, dongs = _targets(r["target_gu"], all_gu), _targets(r["target_dong"], all_gu)
+        if v == "반영":
+            if eid not in linked:
+                problems.append(f"{eid}: '반영'인데 구간 표에 연결된 행 없음")
+                continue
+            if r["target_scope"] == "특정동" and dongs:
+                rows = zone_dong[(zone_dong["start_event_id"] == eid) | (zone_dong["end_event_id"] == eid)]
+                if missing := dongs - set(rows["법정동"]):
+                    problems.append(f"{eid}: 대상 동 중 구간 표에 없는 동 {sorted(missing)}")
+            elif r["target_scope"] in ("특정구", "서울전역"):
+                rows = zone_gu[(zone_gu["start_event_id"] == eid) | (zone_gu["end_event_id"] == eid)]
+                covered = set(rows["자치구"])
+                if r["direction"] == "강화":  # 이미 같은 지정이 걸려 있던 구는 새 행이 없어도 된다 (예: P157의 강남 · 서초 · 송파 · 용산 = P124)
+                    des = CATEGORY_DESIGNATION.get(r["policy_category"], [])
+                    covered |= set(open_at(zone_gu[zone_gu["designation"].isin(des)], r["effective_date"])["자치구"])
+                if missing := gus - covered:
+                    problems.append(f"{eid}: 대상 구 중 구간 표에 없는 구 {sorted(missing)}")
+        elif v == "연장":
+            if r["target_scope"] == "특정동":
+                t = open_at(zone_dong[zone_dong["자치구"].isin(gus) & zone_dong["designation"].eq("토지거래허가구역")], r["effective_date"])
+                missing = dongs - set(t["법정동"])
+            else:
+                des = CATEGORY_DESIGNATION.get(r["policy_category"], [])
+                missing = gus - set(open_at(zone_gu[zone_gu["designation"].isin(des)], r["effective_date"])["자치구"])
+            if missing:
+                problems.append(f"{eid}: '연장'인데 시행일 {r['effective_date'].date()}에 열린 구간이 없는 지역 {sorted(missing)}")
+        elif v in ("비아파트", "규칙"):
+            if eid in linked and v == "규칙":
+                problems.append(f"{eid}: '규칙'인데 구간 표가 참조함")
+            rows = zone_dong[(zone_dong["start_event_id"] == eid)]
+            if v == "비아파트" and len(rows) and not rows["target_detail"].str.contains(_NON_APT, na=False).all():
+                problems.append(f"{eid}: '비아파트'인데 구간 표 행에 비아파트 · 저층주거지 표기가 없음 (아파트 토허로 잡힘)")
+        elif v.startswith("대체:"):
+            if label.get(v.split(":", 1)[1]) != "반영":
+                problems.append(f"{eid}: 대체한 이벤트 {v.split(':', 1)[1]}가 '반영'이 아님")
+
+    if as_of is not None:
+        as_of = pd.Timestamp(as_of)
+        cover = label[label.isin(["반영", "연장"])].index
+        apt_dong = zone_dong[~zone_dong["target_detail"].str.contains(_NON_APT, na=False)]
+        for kind, table in [("구", zone_gu), ("동", apt_dong)]:
+            for _, z in table[table["end_date"].isna() & table["start_date"].le(as_of)].iterrows():
+                # 이 구간을 이어 주는 이벤트(시작 + 같은 지역 · 같은 지정의 연장)의 종료일 중 가장 늦은 것. 하나라도 종료일이 없으면 무기한
+                cat = "토지거래허가구역" if str(z["designation"]).startswith("토") else ("분양가상한제" if str(z["designation"]).startswith("분양") else z["designation"])
+                dong_level = kind == "동" or str(z["designation"]).endswith("일부동")
+                cands = [z["start_event_id"]] + [e for e in cover if ev.loc[e, "policy_category"] == cat
+                                                 and ev.loc[e, "direction"] != "완화"
+                                                 and (ev.loc[e, "target_scope"] == "특정동") == dong_level
+                                                 and z["자치구"] in _targets(ev.loc[e, "target_gu"], all_gu)
+                                                 and (kind == "구" or z["법정동"] in _targets(ev.loc[e, "target_dong"], all_gu))]
+                ends = [ev.loc[e, "end_date"] for e in cands if pd.notna(e) and e in ev.index]
+                if ends and all(pd.notna(x) for x in ends) and max(ends) < as_of:
+                    where = z["자치구"] + ("" if kind == "구" else " " + z["법정동"])
+                    problems.append(f"{where} {z['designation']}({z['start_event_id']}): 마지막 근거 이벤트가 {max(ends).date()}에 끝났는데 구간이 열려 있음 — 연장 이벤트를 넣거나 해제를 반영해야 함")
+    return problems

@@ -121,3 +121,34 @@ def test_rule_event_names_are_checked(tmp_path):
     ev.to_csv(tmp_path / "e.csv", index=False, encoding="utf-8-sig")
     with pytest.raises(ValueError):
         policy.read_events(tmp_path / "e.csv")
+
+
+# ---------------- 이벤트 ↔ 구간 표 연결 (지역지정은 구간 표가 정한다) ----------------
+def test_zone_links_are_complete_today(inputs):
+    # 일부러 오늘 날짜로 검사한다: 지정이 만료됐는데 연장 · 해제를 반영하지 않으면 그날부터 CI가 실패해 알려 준다
+    import datetime
+    assert policy.check_zone_links(inputs["events"], inputs["zone_gu"], inputs["zone_dong"], as_of=datetime.date.today()) == []
+
+
+def test_zone_link_check_catches_mistakes(inputs):
+    ev, g, d = inputs["events"], inputs["zone_gu"], inputs["zone_dong"]
+    check = lambda e=ev, gu=g, dong=d, as_of=None: policy.check_zone_links(e, gu, dong, as_of)  # noqa: E731
+    # ① 새 지역지정 이벤트를 넣고 처리 방식을 안 적음
+    new = pd.concat([ev, ev[ev["event_id"].eq("P157")].assign(event_id="P999", zone_table="")])
+    assert any(p.startswith("P999: zone_table 비어") for p in check(e=new))
+    # ② '반영'이라 적고 구간 표를 빠뜨림 (12월 결정을 이벤트에만 넣는 경우)
+    assert any(p.startswith("P999: '반영'인데") for p in check(e=new.assign(zone_table=new["zone_table"].mask(new["event_id"].eq("P999"), "반영"))))
+    # ③ 구간 표가 참조하는 이벤트를 '반영'이 아니라고 적음
+    assert any(p.startswith("P156: 구간 표가 참조") for p in check(e=ev.assign(zone_table=ev["zone_table"].mask(ev["event_id"].eq("P156"), "규칙"))))
+    # ④ 대상 구 일부만 구간 표에 넣음
+    assert any(p.startswith("P156: 대상 구 중") for p in check(gu=g[~(g["start_event_id"].eq("P156") & g["자치구"].eq("강서구"))]))
+    # ⑤ '연장'인데 이어 줄 구간이 없음
+    assert any(p.startswith("P050: '연장'") for p in check(dong=d[~d["start_event_id"].eq("P033")]))
+    # ⑥ 만료됐는데 열려 있음: 2026-12-31 만료 서울 전역 · 강남3구 · 용산 아파트 토허 → 2027-01-02에 25개 구 모두
+    late = [p for p in check(as_of="2027-01-02") if "토허구역_구전역" in p]
+    assert len(late) == 25
+
+
+def test_every_zone_label_is_known(inputs):
+    lab = inputs["events"]["zone_table"].dropna()
+    assert set(lab[~lab.str.startswith("대체:")]) <= set(policy.ZONE_TABLE_VALUES)
