@@ -47,3 +47,7 @@ notebook/v2_5year_notebook/model/regression/v2_experiments/resid_feat.parquet
 data/external/kapt/raw/
 # 학구도 SHP 원본 (공공데이터포털 한국교육시설안전원 15159262~, 약 58MB) — 연계정보 CSV만 커밋
 data/external/schoolzone/*.zip
+
+# 손으로 적은 매물 호가 표본 원본 (캡처 · 표) — 저장소에 올리지 않음, 통계 결과만 커밋 (docs/asking-price-check.md)
+data/private/
+.claude/
