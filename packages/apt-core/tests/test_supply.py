@@ -1,5 +1,7 @@
 """T1 공급 20 + 재고 대비 6: apt-core ↔ supply_v2 · v2_trade."""
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -66,3 +68,25 @@ def test_shorter_lag_is_caught(src, got):
     # 시험의 시험: 공표 시차를 1개월로 줄이면 값이 달라져야 한다
     leaky = supply.compute(src["grid"], src["official"], src["unsold"], src["ann"], src["stock"], lag=1)
     assert not np.array_equal(leaky["미분양_서울"].to_numpy(float), got["미분양_서울"].to_numpy(float), equal_nan=True)
+
+
+UNSOLD_RAW = sorted((EXTERNAL / "unsold_raw").glob("unsold_*.xlsx"))
+
+
+def _check_unsold(src, paths):
+    got = supply.parse_unsold(paths).sort_values(["ref_month", "구"]).reset_index(drop=True)
+    want = src["unsold"].assign(ref_month=lambda d: d["ref_month"].astype(str))
+    want = want[want["ref_month"].isin(got["ref_month"])].sort_values(["ref_month", "구"]).reset_index(drop=True)
+    pd.testing.assert_frame_equal(got[want.columns], want, check_dtype=False)
+
+
+@pytest.mark.skipif(not UNSOLD_RAW, reason="미분양 원본 엑셀 없음 (gitignore)")
+def test_unsold_parse_sample_months(src):
+    # R8: 대표 달만 (0을 '-'로 쓰던 2019년, 당월 열이 비어 다음 달 파일을 쓰는 2026-02, 최근 달)
+    pick = [p for p in UNSOLD_RAW if any(m in p.name for m in ("201906", "202602", "202603", "202608"))]
+    _check_unsold(src, pick)
+
+
+@pytest.mark.skipif(not UNSOLD_RAW or os.environ.get("APT_CORE_SLOW") != "1", reason="전체 95개월 대조는 APT_CORE_SLOW=1일 때만 (약 10분)")
+def test_unsold_parse_all_months(src):
+    _check_unsold(src, UNSOLD_RAW)

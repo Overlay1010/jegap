@@ -111,3 +111,51 @@ def compute(grid: pd.DataFrame, official: pd.DataFrame, unsold: pd.DataFrame, an
         f[f"{c}_재고천호당"] = f[c] / f["아파트재고"] * 1000
     f.index = grid.index
     return f[["기준월", "자치구"] + COLUMNS + RATIO_COLUMNS]
+
+
+# ---------------- 미분양 원본 엑셀 파싱 (04 셀 14 이식, 설계 1-4b R8) ----------------
+# - '시군구별' 시트는 마지막 열이 그 달 값 (머리글은 오타가 있어 쓰지 않음: 2019-10 파일의 '19.9 등)
+# - 2019 ~ 2021년 파일은 0을 '-' 또는 빈칸으로 표기 → 0 (서울 계 = 25개 구 합으로 검증)
+# - 그 달 파일의 마지막 열이 통째로 비어 있으면(2026-02) 다음 달 파일의 끝에서 두 번째 열을 쓰고 표시
+def _seoul_rows(sheet):
+    d = sheet.copy()
+    d[0] = d[0].ffill()
+    d = d[d[0].astype(str).str.replace(" ", "").str.contains("서울", na=False)].copy()
+    d["구"] = d[1].astype(str).str.replace(" ", "")
+    return d
+
+
+def _to_number(s):
+    return pd.to_numeric(s.astype(str).str.strip().replace({"-": "0", "nan": "0", "": "0"}), errors="coerce")
+
+
+def _read_month(path, offset=0):
+    book = pd.ExcelFile(path)
+    sheet = pd.read_excel(book, "시군구별★", header=None)
+    rows = _seoul_rows(sheet)
+    raw = rows[sheet.columns[-1 - offset]]
+    return rows["구"].to_numpy(), raw.notna().any(), _to_number(raw).to_numpy(), book
+
+
+def parse_unsold_month(ref: pd.Period, files: dict) -> pd.DataFrame:
+    gu, has_value, values, book = _read_month(files[ref])
+    source = "당월 파일"
+    if not has_value and (ref + 1) in files:
+        gu, has_value, values, _ = _read_month(files[ref + 1], offset=1)
+        source = "다음 달 파일"
+    done = _seoul_rows(pd.read_excel(book, "공사완료후★", header=None))
+    return pd.DataFrame({"ref_month": str(ref), "구": gu, "미분양": values, "미분양_출처": source}).merge(
+        pd.DataFrame({"구": done["구"].to_numpy(), "준공후미분양": _to_number(done[2]).to_numpy()}), on="구", how="outer")
+
+
+def parse_unsold(paths) -> pd.DataFrame:
+    """국토부 미분양 월별 엑셀(unsold_YYYYMM.xlsx) 목록 → 구 × 월 (+ '계' = 서울 합)."""
+    import re
+    from pathlib import Path
+    files = {pd.Period(re.search(r"unsold_(\d{6})", Path(p).name).group(1), freq="M"): p for p in paths}
+    out = pd.concat([parse_unsold_month(ref, files) for ref in sorted(files)], ignore_index=True)
+    se = out[out["구"].eq("계")].set_index("ref_month")["미분양"]
+    gu_sum = out[out["구"].ne("계")].groupby("ref_month")["미분양"].sum()
+    if not se.reindex(gu_sum.index).eq(gu_sum).all():
+        raise ValueError("미분양 서울 계 ≠ 25개 구 합 — 엑셀 형식 변경 확인")
+    return out
