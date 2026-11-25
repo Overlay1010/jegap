@@ -21,6 +21,7 @@ pytest packages/apt-core
 | `features/academy.py` | 02c 학원 6개 (상가정보 교육 업종 → 결손 분기 제외 · 기준월+3개월, 학원가 DBSCAN) | T1 + 학원가 목록 · 스냅샷 일치 |
 | `features/policy.py` | 03 정책 41개 (구 × 월 32 · 거래 9, 예상가격 포함). 토허 단지명 정규식은 `data/external/policy_permit_complex_rules.csv`로 옮김 | T1 + 기준월 · 계약일 이후 발표 제외 · 잘못 넣은 구간을 잡는 시험의 시험 · `check_zone_links`(이벤트 ↔ 구간 표 연결, 만료됐는데 열린 구간은 **오늘 날짜로** 실패) |
 | `features/supply.py` | 04 공급 14개(공식 인허가 · 준공, 미분양, 청약홈 분양공고) + 06 재고 대비 6개 | T1 + m-2월 · 공고일 이후 제외 · 시차 1이면 실패 |
+| `features/demographics.py` | 05 인구 15개 + 구별 재고 (KOSIS 원본 표 7개부터) | T1 + 데이터월 m-2 이후 제외 · 시차 1이면 실패 |
 | `features/market.py` | 06 구 · 서울 매매 시장 (확정월, 셀 3 · 5) | T1 + V1 재현(시차 1) · 잘라내기 |
 | `features/rate.py` | 06 금리 (기준금리 m-1 · 대출금리 m-2, 셀 12) | T1 + 잘라내기 |
 | `models/regression.py` | 11 저장 모델 추론 | T4 |
