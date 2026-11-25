@@ -111,3 +111,25 @@ def test_edss_raw_to_school_table():
     want = pd.read_parquet(PROCESSED / "school" / "edss_school_environment_2021_2025.parquet")
     pd.testing.assert_frame_equal(got, want, check_dtype=False)
     assert got["학생수_보정여부"].groupby(got["개방ID"]).any().sum() == 6  # 방송통신 부설학교 6곳
+
+
+# ---------------- R10: 상가정보 원본 → 교육 업종 추출 ----------------
+import os  # noqa: E402
+
+STORE_RAW = sorted((EXTERNAL / "상가정보").glob("*.csv"))
+
+
+def _check_store(store_edu, paths):
+    got = academy.extract_education(paths).reset_index(drop=True)
+    want = store_edu[store_edu["기준월"].isin(got["기준월"])].reset_index(drop=True)
+    pd.testing.assert_frame_equal(got[want.columns], want, check_dtype=False)
+
+
+@pytest.mark.skipif(not STORE_RAW, reason="상가정보 원본 없음 (약 6.5GB, gitignore)")
+def test_store_extract_one_quarter(store_edu):
+    _check_store(store_edu, [p for p in STORE_RAW if p.stem.endswith("202506")])
+
+
+@pytest.mark.skipif(not STORE_RAW or os.environ.get("APT_CORE_SLOW") != "1", reason="25개 분기 전체 대조는 APT_CORE_SLOW=1일 때만")
+def test_store_extract_all_quarters(store_edu):
+    _check_store(store_edu, STORE_RAW)

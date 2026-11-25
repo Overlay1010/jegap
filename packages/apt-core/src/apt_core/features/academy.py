@@ -90,3 +90,23 @@ def compute(query: pd.DataFrame, store_edu: pd.DataFrame, academy_clusters: pd.D
            .merge(static, on=["위도", "경도"], how="left", validate="many_to_one").rename(columns={"기준월": "학원스냅샷기준월"}))
     out.index = query.index
     return out[COLUMNS + ["학원스냅샷기준월", "학원스냅샷_경과개월"] + DISPLAY]
+
+
+# ---------------- 상가정보 원본 → 교육 업종 추출 (02c 셀 2 이식, 설계 1-4b R10) ----------------
+STORE_COLS = ["상가업소번호", "상호명", "상권업종대분류코드", "상권업종중분류코드", "상권업종소분류코드", "상권업종소분류명",
+              "시군구명", "행정동명", "경도", "위도"]
+
+
+def extract_education(paths) -> pd.DataFrame:
+    """소상공인 상가(상권)정보 서울 분기 CSV(파일명 끝 YYYYMM = 기준월) → 교육 업종(P1)만 + 기준월 · 그 분기 전체업소수."""
+    from pathlib import Path
+    frames = []
+    for p in sorted(map(Path, paths)):
+        snap = pd.read_csv(p, encoding="utf-8-sig", usecols=STORE_COLS, dtype=str)
+        edu = snap[snap["상권업종대분류코드"] == "P1"].copy()
+        edu["기준월"] = p.stem.split("_")[-1]
+        edu["전체업소수"] = len(snap)
+        frames.append(edu)
+    out = pd.concat(frames, ignore_index=True)
+    out[["경도", "위도"]] = out[["경도", "위도"]].astype(float)
+    return out
