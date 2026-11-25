@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from apt_core.features import supply
+import raw_record
 from conftest import EXTERNAL, PROCESSED
 
 
@@ -87,6 +88,7 @@ def test_unsold_parse_sample_months(src):
     _check_unsold(src, pick)
 
 
-@pytest.mark.skipif(not UNSOLD_RAW or os.environ.get("APT_CORE_SLOW") != "1", reason="전체 95개월 대조는 APT_CORE_SLOW=1일 때만 (약 10분)")
+@pytest.mark.skipif(not UNSOLD_RAW or os.environ.get("APT_CORE_SLOW") != "1", reason="전체 92개월 대조는 APT_CORE_SLOW=1일 때만 (약 10분)")
 def test_unsold_parse_all_months(src):
     _check_unsold(src, UNSOLD_RAW)
+    raw_record.save("unsold")

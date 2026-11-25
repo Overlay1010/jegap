@@ -26,4 +26,4 @@ pytest packages/apt-core
 | `models/regression.py` | 11 저장 모델 추론 | T4 |
 | `guards.py` | 서빙 행 검사: 학습 최근 12개월 결측 없던 165개 열 (`required_non_null.json`) | R11 |
 
-원본 → 중간 산출물 단계도 옮겼다: 미분양 엑셀(`supply.parse_unsold`) · EDSS(`school.merge_edss` · `edss_school_table`) · 상가정보(`academy.extract_education`). 원본은 gitignore라 CI에서는 건너뛰고, 전체 대조는 `APT_CORE_SLOW=1 pytest packages/apt-core`.
+원본 → 중간 산출물 단계도 옮겼다: 미분양 엑셀(`supply.parse_unsold`) · EDSS(`school.merge_edss` · `edss_school_table`) · 상가정보(`academy.extract_education`). 원본은 gitignore라 CI에서는 건너뛰고, 전체 대조는 `APT_CORE_SLOW=1 pytest packages/apt-core`. 대조가 통과하면 `tests/raw_verified.json`에 코드 지문 · 원본 목록이 기록되고, 원본이나 파싱 코드가 바뀌었는데 다시 안 돌리면 평소 테스트가 실패한다 (기록 파일도 같이 커밋).

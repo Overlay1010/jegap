@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from apt_core.features import academy, school
+import raw_record
 from conftest import PROCESSED
 
 EDSS = PROCESSED / "edss"
@@ -111,6 +112,7 @@ def test_edss_raw_to_school_table():
     want = pd.read_parquet(PROCESSED / "school" / "edss_school_environment_2021_2025.parquet")
     pd.testing.assert_frame_equal(got, want, check_dtype=False)
     assert got["학생수_보정여부"].groupby(got["개방ID"]).any().sum() == 6  # 방송통신 부설학교 6곳
+    raw_record.save("edss")
 
 
 # ---------------- R10: 상가정보 원본 → 교육 업종 추출 ----------------
@@ -133,3 +135,4 @@ def test_store_extract_one_quarter(store_edu):
 @pytest.mark.skipif(not STORE_RAW or os.environ.get("APT_CORE_SLOW") != "1", reason="25개 분기 전체 대조는 APT_CORE_SLOW=1일 때만")
 def test_store_extract_all_quarters(store_edu):
     _check_store(store_edu, STORE_RAW)
+    raw_record.save("store")
