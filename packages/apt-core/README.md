@@ -19,6 +19,7 @@ pytest packages/apt-core
 | `features/complex.py` | 05b 대장 물리 속성 · 공시가격 · 면적 구성 · 재건축 단계 (원본 → 중간 산출물 → 거래 21열) | T1 + 공시 7월 경계 · 미래 고시일 제외. 공시 원본(gitignore)이 없으면 공시 테스트는 건너뜀 |
 | `features/school.py` | 02b 학교 23개 (EDSS 학교 표 → 좌표 × 학교기준연도, 6월 공시 경계) | T1 + 학교명 · 기준연도 일치 |
 | `features/academy.py` | 02c 학원 6개 (상가정보 교육 업종 → 결손 분기 제외 · 기준월+3개월, 학원가 DBSCAN) | T1 + 학원가 목록 · 스냅샷 일치 |
+| `features/policy.py` | 03 정책 41개 (구 × 월 32 · 거래 9, 예상가격 포함). 토허 단지명 정규식은 `data/external/policy_permit_complex_rules.csv`로 옮김 | T1 + 기준월 · 계약일 이후 발표 제외 · 잘못 넣은 구간을 잡는 시험의 시험 |
 | `features/market.py` | 06 구 · 서울 매매 시장 (확정월, 셀 3 · 5) | T1 + V1 재현(시차 1) · 잘라내기 |
 | `features/rate.py` | 06 금리 (기준금리 m-1 · 대출금리 m-2, 셀 12) | T1 + 잘라내기 |
 | `models/regression.py` | 11 저장 모델 추론 | T4 |
