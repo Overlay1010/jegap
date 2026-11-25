@@ -152,3 +152,18 @@ def test_zone_link_check_catches_mistakes(inputs):
 def test_every_zone_label_is_known(inputs):
     lab = inputs["events"]["zone_table"].dropna()
     assert set(lab[~lab.str.startswith("대체:")]) <= set(policy.ZONE_TABLE_VALUES)
+
+
+# ---------------- 토허 단지명 규칙이 잡는 단지 고정 (R7) ----------------
+def test_permit_rules_match_saved_complexes(trades, apt_dong):
+    saved = pd.read_csv(EXTERNAL / "policy_permit_complex_ids.csv", encoding="utf-8-sig")
+    assert policy.check_permit_rules(policy.permit_rule_matches(trades, apt_dong), saved) == []
+    assert len(saved) == 85
+
+
+def test_renamed_complex_is_caught(trades, apt_dong):
+    saved = pd.read_csv(EXTERNAL / "policy_permit_complex_ids.csv", encoding="utf-8-sig")
+    eunma = saved.loc[saved["단지명"].eq("은마"), "단지일련번호"].iloc[0]
+    renamed = trades.assign(단지명=trades["단지명"].mask(trades["단지일련번호"].eq(eunma), "은마아파트"))  # 국토부 표기 변경 가정
+    problems = policy.check_permit_rules(policy.permit_rule_matches(renamed, apt_dong), saved)
+    assert len(problems) == 1 and problems[0].startswith("빠짐") and eunma in problems[0]

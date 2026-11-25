@@ -427,3 +427,26 @@ def check_zone_links(events: pd.DataFrame, zone_gu: pd.DataFrame, zone_dong: pd.
                     where = z["자치구"] + ("" if kind == "구" else " " + z["법정동"])
                     problems.append(f"{where} {z['designation']}({z['start_event_id']}): 마지막 근거 이벤트가 {max(ends).date()}에 끝났는데 구간이 열려 있음 — 연장 이벤트를 넣거나 해제를 반영해야 함")
     return problems
+
+
+# ---------------- 토허 단지명 규칙 검사 (설계 1-4b R7) ----------------
+# 판정이 단지 '이름' 정규식이라 국토부 표기가 바뀌면 그 단지가 조용히 빠진다 → 규칙이 잡는 단지를 단지일련번호로 고정해 두고
+# 각 단지의 최근 거래 이름으로 다시 판정해 달라지면 실패한다 (빠짐 = 이름 변경 의심, 새로 잡힘 = 새 단지 · 목록 검토).
+def permit_rule_matches(trades: pd.DataFrame, apt_dong: pd.DataFrame) -> pd.DataFrame:
+    latest = (trades.sort_values("계약일자", kind="stable")
+              .drop_duplicates("단지일련번호", keep="last")[["단지일련번호", "시군구명", "법정동", "단지명"]])
+    rules = apt_dong[apt_dong["pattern"].notna()][["자치구", "법정동", "start_date", "pattern", "근거"]]
+    m = rules.merge(latest, left_on=["자치구", "법정동"], right_on=["시군구명", "법정동"])
+    hit = m.apply(lambda r: isinstance(r["단지명"], str) and re.match(r["pattern"], r["단지명"]) is not None, axis=1)
+    out = m[hit][["자치구", "법정동", "start_date", "단지일련번호", "단지명", "근거"]].copy()
+    out["start_date"] = pd.to_datetime(out["start_date"]).dt.strftime("%Y-%m-%d")
+    return out.sort_values(["자치구", "법정동", "start_date", "단지일련번호"]).reset_index(drop=True)
+
+
+def check_permit_rules(matches: pd.DataFrame, saved: pd.DataFrame) -> list[str]:
+    key = ["자치구", "법정동", "start_date", "단지일련번호"]
+    a = set(map(tuple, matches[key].astype(str).to_numpy()))
+    b = set(map(tuple, saved[key].astype(str).to_numpy()))
+    names = dict(zip(map(tuple, saved[key].astype(str).to_numpy()), saved["단지명"]))
+    return ([f"빠짐 {k} (저장 이름 '{names[k]}') — 단지명 표기가 바뀌었는지 확인하고 규칙을 고칠 것" for k in sorted(b - a)]
+            + [f"새로 잡힘 {k} — 지정 대상이 맞는지 원문 확인 후 policy_permit_complex_ids.csv에 추가" for k in sorted(a - b)])
