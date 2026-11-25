@@ -53,3 +53,7 @@ data/private/
 .claude/
 # 현재 목록만 주는 원천의 월 스냅숏 (07_snapshot_monthly.py, v4-design 5-10) — 용량이 커서 저장소에 올리지 않음
 data/snapshots/
+
+# Python 빌드 · 캐시 부산물
+__pycache__/
+*.egg-info/

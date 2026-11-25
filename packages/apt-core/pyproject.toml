@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apt-core"
+version = "0.1.0"
+description = "JeGap 적정가 계산 핵심 — 노트북(V2)에서 검증한 Feature · 추론 · 범위 계산을 학습과 서빙이 함께 쓰는 순수 함수로 옮긴 패키지"
+requires-python = ">=3.13"
+dependencies = [
+  "pandas==2.2.3",
+  "numpy==2.5.2",
+  "pyarrow==25.0.1",
+  "lightgbm==4.7.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
