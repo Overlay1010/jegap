@@ -5,7 +5,7 @@ V1 정의 그대로(구 · 서울 월 중위가격 · 중위평당가 · 거래�
 시차만 1 → 2로 바꿨다. 열 이름의 '전월 · 과거N개월'은 시차 2에서 '확정월 · 확정N개월'이 된다.
 
 입력 거래 풀 = 해제 제외 매매 거래 (시군구명, 거래월일자(월 1일), 거래금액(만원), 평당가).
-V2 학습 때 풀 = 워밍업 원본(2020-01 ~ 2021-06, 해제 제외) + V1 정제본(2021-07 ~, 해제 · 좌표 실패 제외) — `notebook_pool` 참고.
+풀 = `trade_pool` (워밍업 원본 + base.clean 출력).
 """
 
 from __future__ import annotations
@@ -31,26 +31,26 @@ COLUMNS = [lag_label(c, TRADE_LAG) for c in V1_COLUMNS]
 POOL_COLS = ["법정동시군구코드", "시군구명", "법정동", "단지일련번호", "거래월일자", "거래금액", "평당가"]
 
 
-def notebook_pool(warmup_raw: pd.DataFrame, v1_final: pd.DataFrame) -> pd.DataFrame:
-    """06 셀 3의 거래 풀: 워밍업 원본(해제 제외) + V1 정제본. 구 이름은 V1의 시군구코드 ↔ 시군구명 표로 붙인다."""
-    v1 = v1_final.copy()
-    v1["거래월일자"] = pd.to_datetime(v1["거래월일자"])
-    for c in ("시군구명", "법정동", "단지일련번호"):
-        v1[c] = v1[c].astype(str)
-    gu_name = v1.drop_duplicates("법정동시군구코드").set_index("법정동시군구코드")["시군구명"]
+def trade_pool(cleaned: pd.DataFrame, warmup_raw: pd.DataFrame) -> pd.DataFrame:
+    """시장 Feature용 매매 거래 풀 = 워밍업 원본(2020-01 ~ 2021-06, 해제 제외) + base.clean 출력.
+    V2 노트북은 V1 정제본(df_final_v1)을 썼는데, base.clean 결과와 7개 열이 모두 같음을 확인했다(2026-11-26) → 원본만으로 만든다."""
+    from apt_core.features.base import SEOUL_GU
+    t = cleaned.copy()
+    t["법정동"] = t["법정동"].astype(str).str.strip()
+    t["거래금액"] = t["거래금액"].astype(float)
+    t["평당가"] = t["거래금액"] / (t["전용면적"].astype(float) / PYEONG)
+    t["거래월일자"] = pd.to_datetime(t["거래월일자"])
     warm = warmup_raw[warmup_raw["해제여부"].ne("O")].copy()
     warm["법정동시군구코드"] = warm["법정동시군구코드"].astype(str).str.zfill(5)
-    warm["시군구명"] = warm["법정동시군구코드"].map(gu_name)
+    warm["시군구명"] = warm["법정동시군구코드"].map(SEOUL_GU)
     warm["법정동"] = warm["법정동"].astype(str).str.strip()
     warm["단지일련번호"] = warm["단지일련번호"].astype(str)
     warm["거래월일자"] = pd.to_datetime(dict(year=warm["계약년도"], month=warm["계약월"], day=1))
     warm["거래금액"] = warm["거래금액"].astype(float)
     warm["평당가"] = warm["거래금액"] / (warm["전용면적"].astype(float) / PYEONG)
     if warm["시군구명"].isna().any():
-        raise ValueError("워밍업 거래에 구 이름을 붙이지 못한 행이 있습니다")
-    pool_v1 = v1[POOL_COLS].copy()
-    pool_v1["거래금액"] = pool_v1["거래금액"].astype(float)
-    return pd.concat([warm[POOL_COLS], pool_v1], ignore_index=True)
+        raise ValueError("워밍업 거래에 서울 밖 시군구 코드가 있음")
+    return pd.concat([warm[POOL_COLS], t[POOL_COLS]], ignore_index=True)
 
 
 def monthly_market(trades: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:

@@ -14,8 +14,10 @@ def v1_final():
 
 
 @pytest.fixture(scope="module")
-def pool(v1_final):
-    return market.notebook_pool(pd.read_parquet(PROCESSED / "apt_trade_warmup_raw.parquet"), v1_final)
+def pool():
+    from apt_core.features import base
+    return market.trade_pool(base.clean(pd.read_parquet(PROCESSED / "apt_trade_raw.parquet")),
+                             pd.read_parquet(PROCESSED / "apt_trade_warmup_raw.parquet"))
 
 
 def _assert_same(a, b, name):

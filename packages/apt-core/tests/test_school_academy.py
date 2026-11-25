@@ -77,3 +77,12 @@ def test_academy_snapshot_not_before_release(store_edu):
     assert "202303" not in snaps  # 결손 분기는 건너뜀
     s = academy.snapshot_for(pd.Series([202103, 202104]), snaps)
     assert (s["학원스냅샷_경과개월"] >= academy.RELEASE_LAG_MONTHS).all()
+
+
+def test_stale_inputs_fail(trades, schools, store_edu):
+    # 갱신이 밀리면 오래된 값을 조용히 쓰지 않고 실패한다 (기준 = 학습 데이터 최대 지연)
+    late = trades.iloc[[0]].assign(계약일자=pd.Timestamp("2027-07-01"))
+    with pytest.raises(ValueError, match="학교 통계"):
+        school.compute(late, schools)
+    with pytest.raises(ValueError, match="학원 스냅샷"):
+        academy.compute(trades.iloc[[0]].assign(계약일자=pd.Timestamp("2029-01-01")), store_edu, academy.clusters(store_edu))

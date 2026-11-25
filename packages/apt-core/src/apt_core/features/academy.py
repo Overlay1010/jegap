@@ -16,6 +16,7 @@ from sklearn.neighbors import BallTree
 EARTH_RADIUS_M = 6_371_000
 ACADEMY_GROUPS = {"입시교과": ["P10501"], "예체능": ["P10601", "P10609", "P10611", "P10613"], "외국어": ["P10615"]}
 GAP_RATIO, RELEASE_LAG_MONTHS = 0.7, 3
+MAX_SNAPSHOT_AGE = 26  # 학습 데이터 최대 경과개월 (결손 분기 때문). 넘으면 상가정보 분기 갱신이 밀린 것
 SEOUL_LAT, SEOUL_LON = (37.41, 37.72), (126.76, 127.19)
 CLUSTER_SNAPSHOT, CLUSTER_EPS_M, CLUSTER_MIN_SAMPLES, MAJOR_CLUSTER_SIZE = "202012", 250, 80, 250
 RADIUS_RULES = [("입시교과", 500, "반경500m_입시교과학원수"), ("입시교과", 1000, "반경1km_입시교과학원수"),
@@ -66,6 +67,8 @@ def compute(query: pd.DataFrame, store_edu: pd.DataFrame, academy_clusters: pd.D
     """query: 위도 · 경도 · date_col. 반환: query와 같은 인덱스의 학원 Feature 6개 + 스냅샷 메타 · 학원가명."""
     day = pd.to_datetime(query[date_col])
     snap = snapshot_for(day.dt.year * 100 + day.dt.month, normal_snapshots(store_edu))
+    if (age := int(snap["학원스냅샷_경과개월"].max())) > MAX_SNAPSHOT_AGE:
+        raise ValueError(f"학원 스냅샷이 {age}개월 묵음 — 상가정보 분기 파일 갱신 필요")
     q = pd.DataFrame({"위도": query["위도"].to_numpy(), "경도": query["경도"].to_numpy()})
     q = pd.concat([q, snap], axis=1)
     locs = q[["위도", "경도"]].drop_duplicates().reset_index(drop=True)

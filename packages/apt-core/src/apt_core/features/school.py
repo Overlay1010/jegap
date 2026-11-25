@@ -14,6 +14,7 @@ from sklearn.neighbors import BallTree
 
 EARTH_RADIUS_M = 6_371_000
 SCHOOL_RELEASE_MONTH = 6
+MAX_SCHOOL_LAG_YEARS = 1  # 학습 데이터 최대 (2026 상반기 거래가 2025 자료). 넘으면 학교 통계 갱신이 밀린 것
 NEAREST_LEVELS = {"초등학교": "최근접초", "중학교": "최근접중"}
 NEAREST_VALUE_COLS = ["학생수", "학급당학생수", "교원1인당학생수", "학생수증감률", "학생순전입률",
                       "학생1인당_교수학습공간", "학생1인당_체육장면적", "교사동_평균경과년수"]
@@ -101,6 +102,10 @@ def location_features(locations: pd.DataFrame, schools: pd.DataFrame, year: int)
 
 def compute(query: pd.DataFrame, schools: pd.DataFrame, date_col: str = "계약일자") -> pd.DataFrame:
     """query: 위도 · 경도 · date_col. 반환: query와 같은 인덱스의 학교 Feature 23개 + 학교기준연도 · 학교명."""
+    d = pd.to_datetime(query[date_col])
+    wanted = np.where(d.dt.month >= SCHOOL_RELEASE_MONTH, d.dt.year, d.dt.year - 1)
+    if (lag := int(wanted.max() - schools["기준연도"].max())) > MAX_SCHOOL_LAG_YEARS:
+        raise ValueError(f"학교 통계가 {lag}년 밀림 (최신 {int(schools['기준연도'].max())}년) — EDSS · 학교알리미 연간 갱신 필요")
     yr = school_year(query[date_col], int(schools["기준연도"].min()), int(schools["기준연도"].max()))
     q = pd.DataFrame({"위도": query["위도"].to_numpy(), "경도": query["경도"].to_numpy(), "학교기준연도": yr})
     locs = q[["위도", "경도"]].drop_duplicates().reset_index(drop=True)

@@ -45,3 +45,9 @@ def test_query_date_path_matches_rows(v2_trade, trades_raw, weekly_index):
         for c in last_trade.COLUMNS:
             a, b = float(one[c].iloc[0]), float(r[c])
             assert (np.isnan(a) and np.isnan(b)) or a == b, (r["transaction_id"], c, a, b)
+
+
+def test_stale_weekly_index_fails(v2_trade, trades_raw, weekly_index):
+    q = v2_trade.iloc[[0]][["단지일련번호", "전용면적", "시군구명"]].assign(계약일자=pd.Timestamp("2027-03-01"))
+    with pytest.raises(ValueError, match="주간 지수"):
+        last_trade.compute(q, last_trade.build_reference(trades_raw), weekly_index)

@@ -16,6 +16,7 @@ import pandas as pd
 
 REPORT_DAYS = 30
 INDEX_LAG = pd.Timedelta(days=3)  # 월요일 기준 주 → 목요일 공표
+MAX_INDEX_STALE_DAYS = 14  # 학습 데이터 최대 (명절로 한 주 빠진 경우). 넘으면 주간 지수 수집이 멈춘 것
 
 COLUMNS = ["직전거래가_동일면적", "직전3건중위_동일면적", "직전거래_경과일", "직전거래_층", "동일면적_누적거래수",
            "직전거래후_구지수변화", "직전거래가_시세보정"]
@@ -53,6 +54,10 @@ def _gu_index(wk: pd.DataFrame, dates: pd.Series, gu: pd.Series, published_befor
                       direction="backward", allow_exact_matches=not published_before)
     value = np.full(len(dates), np.nan)
     value[m["pos"].to_numpy()] = m["지수"].to_numpy()
+    if published_before and len(m):
+        stale = (m["key"] - (m["주"] + INDEX_LAG)).dt.days
+        if (worst := stale.max()) > MAX_INDEX_STALE_DAYS:
+            raise ValueError(f"주간 지수가 공표 후 {int(worst)}일 지난 값 — index-weekly 수집 확인 필요")
     return value
 
 
@@ -63,7 +68,7 @@ def compute(query: pd.DataFrame, reference: pd.DataFrame, weekly_index: pd.DataF
         "_pos": np.arange(len(query)),
         "단지일련번호": query["단지일련번호"].astype(str).to_numpy(),
         "면적키": query["전용면적"].astype(float).round(0).to_numpy(),
-        "질의일": pd.to_datetime(query[date_col]).to_numpy(),
+        "질의일": pd.to_datetime(query[date_col]).astype("datetime64[ns]").to_numpy(),  # 1행 질의(초 단위 Timestamp)도 참고 표와 같은 단위로
     })
     last = pd.merge_asof(q.sort_values("질의일"), reference, left_on="질의일", right_on="공개일",
                          by=["단지일련번호", "면적키"], direction="backward").sort_values("_pos")
@@ -74,7 +79,7 @@ def compute(query: pd.DataFrame, reference: pd.DataFrame, weekly_index: pd.DataF
     out["직전거래_층"] = last["층"].astype(float).to_numpy()
     out["동일면적_누적거래수"] = last["누적거래수"].astype(float).to_numpy()
 
-    qday = pd.to_datetime(query[date_col]).reset_index(drop=True)
+    qday = pd.to_datetime(query[date_col]).astype("datetime64[ns]").reset_index(drop=True)
     gu = query["시군구명"].reset_index(drop=True)
     prev_day = qday - pd.to_timedelta(out["직전거래_경과일"].to_numpy(), unit="D")
     idx_now = _gu_index(wk, qday, gu, published_before=True)

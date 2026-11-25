@@ -64,6 +64,9 @@ def compute(rows: pd.DataFrame, geocode_cache: pd.DataFrame) -> pd.DataFrame:
     key = search_address(rows)
     out["위도"] = key.map(geo["위도"]).astype(float).to_numpy()
     out["경도"] = key.map(geo["경도"]).astype(float).to_numpy()
+    # 좌표 없는 거래가 결측 위치로 조용히 들어가지 않게: 새 주소는 pipeline이 먼저 지오코딩 캐시에 채워야 한다
+    if (miss := out["위도"].isna() | out["경도"].isna()).any():
+        raise ValueError(f"지오코딩 캐시에 없는 주소 {int(miss.sum())}건: {sorted(set(key[miss.to_numpy()]))[:5]}")
     # 원본 API는 거래유형이 없던 시기(2021 초) 값을 문자열 "nan"으로 준다 → 결측으로 (V1과 같음)
     out["거래유형"] = rows["거래유형"].where(~rows["거래유형"].astype(str).isin(["nan", "", "None"]), None)
     out["토지임대부아파트여부"] = rows["토지임대부아파트여부"]

@@ -46,3 +46,10 @@ def test_elapsed_month_is_fixed_to_base(cleaned, computed):
     later = cleaned[cleaned["계약일자"] >= "2024-01-01"]
     again = base.compute(later, pd.read_csv(EXTERNAL / "geocode_cache.csv", encoding="utf-8-sig"))
     assert again["경과월"].equals(computed.loc[later.index, "경과월"])
+
+
+def test_missing_geocode_fails(cleaned):
+    cache = pd.read_csv(EXTERNAL / "geocode_cache.csv", encoding="utf-8-sig")
+    one = cleaned.iloc[[0]]
+    with pytest.raises(ValueError, match="지오코딩"):
+        base.compute(one, cache[cache["검색주소"] != base.search_address(one).iloc[0]])
